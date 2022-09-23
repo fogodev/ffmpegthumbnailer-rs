@@ -1,7 +1,8 @@
 use crate::{film_strip_filter, MovieDecoder, ThumbnailSize, ThumbnailerError, VideoFrame};
-use std::path::Path;
-use tokio::{fs, task::block_in_place};
-use webp::{Encoder, WebPMemory};
+
+use std::{ops::Deref, path::Path};
+use tokio::{fs, task::spawn_blocking};
+use webp::Encoder;
 
 /// `Thumbnailer` struct holds data from a `ThumbnailerBuilder`, exposing methods
 /// to generate thumbnails from video files.
@@ -29,37 +30,46 @@ impl Thumbnailer {
     pub async fn process_to_webp_bytes(
         &self,
         video_file_path: impl AsRef<Path>,
-    ) -> Result<WebPMemory, ThumbnailerError> {
-        block_in_place(move || -> Result<WebPMemory, ThumbnailerError> {
-            let mut decoder =
-                MovieDecoder::new(video_file_path, self.builder.prefer_embedded_metadata)?;
+    ) -> Result<Vec<u8>, ThumbnailerError> {
+        let video_file_path = video_file_path.as_ref().to_path_buf();
+        let prefer_embedded_metadata = self.builder.prefer_embedded_metadata;
+        let seek_percentage = self.builder.seek_percentage;
+        let size = self.builder.size;
+        let maintain_aspect_ratio = self.builder.maintain_aspect_ratio;
+        let with_film_strip = self.builder.with_film_strip;
+        let quality = self.builder.quality;
+
+        spawn_blocking(move || -> Result<Vec<u8>, ThumbnailerError> {
+            let mut decoder = MovieDecoder::new(video_file_path, prefer_embedded_metadata)?;
             // We actually have to decode a frame to get some metadata before we can start decoding for real
             decoder.decode_video_frame()?;
 
             if !decoder.embedded_metadata_is_available() {
                 decoder.seek(
-                    (decoder.get_video_duration().as_secs() as f32 * self.builder.seek_percentage)
-                        .round() as i64,
+                    (decoder.get_video_duration().as_secs() as f32 * seek_percentage).round()
+                        as i64,
                 )?;
             }
 
             let mut video_frame = VideoFrame::default();
 
-            decoder.get_scaled_video_frame(
-                Some(self.builder.size),
-                self.builder.maintain_aspect_ratio,
-                &mut video_frame,
-            )?;
+            decoder.get_scaled_video_frame(Some(size), maintain_aspect_ratio, &mut video_frame)?;
 
-            if self.builder.with_film_strip {
+            if with_film_strip {
                 film_strip_filter(&mut video_frame);
             }
 
+            // Type WebPMemory is !Send, which makes the Future in this function !Send,
+            // this make us `deref` to have a `&[u8]` and then `to_owned` to make a Vec<u8>
+            // which implies on a unwanted clone...
             Ok(
                 Encoder::from_rgb(&video_frame.data, video_frame.width, video_frame.height)
-                    .encode(self.builder.quality),
+                    .encode(quality)
+                    .deref()
+                    .to_vec(),
             )
         })
+        .await?
     }
 }
 

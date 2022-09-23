@@ -1,6 +1,7 @@
 use std::ffi::c_int;
 use std::path::PathBuf;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 use ffmpeg_sys_next::{
     AVERROR_BSF_NOT_FOUND, AVERROR_BUFFER_TOO_SMALL, AVERROR_BUG, AVERROR_BUG2,
@@ -33,6 +34,8 @@ pub enum ThumbnailerError {
     InvalidSeekPercentage(f32),
     #[error("Received an invalid quality, expected range [0.0, 100.0], received: {0}")]
     InvalidQuality(f32),
+    #[error("Background task failed: {0}")]
+    BackgroundTaskFailed(#[from] JoinError),
 }
 
 /// Enum to represent possible errors from FFMPEG library

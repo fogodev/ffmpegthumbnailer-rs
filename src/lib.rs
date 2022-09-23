@@ -5,7 +5,6 @@ use crate::{
 };
 
 use std::path::Path;
-use webp::WebPMemory;
 
 mod error;
 mod film_strip;
@@ -37,7 +36,7 @@ pub async fn to_webp_bytes(
     video_file_path: impl AsRef<Path>,
     size: u32,
     quality: f32,
-) -> Result<WebPMemory, ThumbnailerError> {
+) -> Result<Vec<u8>, ThumbnailerError> {
     ThumbnailerBuilder::new()
         .size(size)
         .quality(quality)?
@@ -52,7 +51,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::fs;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_all_files() {
         let video_file_path = [
             Path::new("./samples/video_01.mp4"),
